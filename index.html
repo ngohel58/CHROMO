@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChromoStereoizer Web - v2.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.16.3/ort.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        .header {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            padding: 30px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        .main-content { display: grid; grid-template-columns: 1fr 2fr; gap: 30px; padding: 30px; }
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .control-group { margin-bottom: 25px; }
+        .control-group h3 { color: #a78bfa; margin-bottom: 15px; font-size: 1.1rem; font-weight: 600; }
+        .file-controls { display: flex; flex-direction: column; gap: 15px; }
+        .file-input-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+        .file-input { position: absolute; left: -9999px; }
+        .file-button {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+        }
+        .file-button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4); }
+        .filename-input {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #e0e0e0;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        .filename-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+        .slider-control { margin-bottom: 20px; }
+        .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.9rem; color: #d1d5db; }
+        .slider-value { background: rgba(99,102,241,0.2); color: #a78bfa; padding: 4px 8px; border-radius: 6px; font-weight: 600; min-width: 40px; text-align: center; }
+        .slider { width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); outline: none; -webkit-appearance: none; appearance: none; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: all .2s ease; }
+        .slider::-webkit-slider-thumb:hover { transform: scale(1.1); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+        .slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%); cursor: pointer; border: none; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+        .process-button {
+            background: linear-gradient(135deg,#10b981 0%,#059669 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(16,185,129,0.3);
+        }
+        .process-button:hover:not(:disabled){ transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16,185,129,0.4); }
+        .process-button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .preview-panel { display: grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap: 20px; }
+        .preview-card { background: rgba(255,255,255,0.03); border-radius: 15px; padding: 20px; border: 1px solid rgba(255,255,255,0.08); transition: all 0.3s ease; }
+        .preview-card:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .preview-title { color: #a78bfa; font-size: 1.1rem; font-weight: 600; }
+        .download-button { background: linear-gradient(135deg,#f59e0b 0%,#d97706 100%); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.3s ease; opacity: 0; pointer-events:none; box-shadow:0 2px 8px rgba(245,158,11,0.3); }
+        .download-button.enabled { opacity:1; pointer-events:auto; }
+        .download-button:hover { transform: translateY(-1px); box-shadow:0 4px 12px rgba(245,158,11,0.4); }
+        .preview-container { width:100%; min-height:200px; background:rgba(0,0,0,0.2); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:2px dashed rgba(255,255,255,0.1); }
+        .preview-image { max-width:100%; max-height:300px; border-radius:8px; box-shadow:0 4px 15px rgba(0,0,0,0.3); }
+        .placeholder-text { color:#6b7280; font-style:italic; text-align:center; }
+        .loading { display:flex; align-items:center; justify-content:center; gap:10px; color:#6366f1; }
+        .spinner { width:20px; height:20px; border:2px solid rgba(99,102,241,0.3); border-top:2px solid #6366f1; border-radius:50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0%{ transform:rotate(0deg);} 100%{ transform:rotate(360deg);} }
+        .status-message { background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3); color:#3b82f6; padding:12px 20px; border-radius:10px; margin-top:15px; text-align:center; font-size:0.9rem; }
+        .error-message { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#ef4444; }
+        .success-message { background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); color:#10b981; }
+        @media (max-width:1024px){ .main-content{ grid-template-columns:1fr; } .preview-panel{ grid-template-columns:1fr; } }
+        @media (max-width:768px){ .container{ margin:10px; border-radius:15px; } .header{ padding:20px; } .header h1{ font-size:2rem; } .main-content{ padding:20px; gap:20px; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>ChromoStereoizer Web</h1>
+        <p>AI-Powered Depth-Based Chromostereopsis Effects</p>
+        <div style="margin-top: 15px; font-size: 0.9rem; opacity: 0.8;">
+            🚀 <strong>Ready to use:</strong> Click "Load Hosted Model" for instant AI depth estimation with DepthAnythingV2!
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="controls-panel">
+            <div class="control-group">
+                <h3>🤖 AI Model Configuration</h3>
+                <div class="file-controls">
+                    <button id="loadHostedModel" class="file-button" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">🌐 Load Hosted DepthAnythingV2 Model</button>
+                    <div class="file-input-wrapper" style="margin-top: 10px;">
+                        <input type="file" id="modelInput" class="file-input" accept=".onnx">
+                        <label for="modelInput" class="file-button">📁 Load Custom ONNX Model</label>
+                    </div>
+                    <button id="testModelButton" class="file-button" style="margin-top: 10px; background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); opacity: 0.5; pointer-events: none;">🧪 Test Model</button>
+                    <div id="modelStatus" class="status-message">Click "Load Hosted Model" for instant AI depth estimation!</div>
+                    <details style="margin-top: 10px; color: #d1d5db; font-size: 0.85rem;">
+                        <summary style="cursor: pointer; color: #a78bfa;">📋 Model Information</summary>
+                        <div style="padding: 10px 0; line-height: 1.5;">
+                            <strong>Hosted Model:</strong><br>
+                            • DepthAnythingV2 (Small, Quantized)<br>
+                            • Input: 518x518 RGB<br>
+                            • Fast inference, good quality<br>
+                            • No download required<br><br>
+                            <strong>Custom Model Requirements:</strong><br>
+                            • Input: [1, 3, H, W] (RGB image)<br>
+                            • Output: [1, 1, H, W] or [1, H, W] (depth map)<br>
+                            • ONNX Opset: 11-14 (Web compatible)<br>
+                            • Size: <100MB recommended<br>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>📁 File Management</h3>
+                <div class="file-controls">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="imageInput" class="file-input" accept="image/*">
+                        <label for="imageInput" class="file-button">Select Input Image</label>
+                    </div>
+                    <input type="text" id="filenameInput" class="filename-input" placeholder="Enter output filename (without extension)">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>🎛️ Effect Parameters</h3>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Median Threshold</span>
+                        <span class="slider-value" id="thresholdValue">50%</span>
+                    </div>
+                    <input type="range" id="thresholdSlider" class="slider" min="1" max="100" value="50">
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Feather Width</span>
+                        <span class="slider-value" id="featherValue">10%</span>
+                    </div>
+                    <input type="range" id="featherSlider" class="slider" min="0" max="100" value="10">
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Black Level</span>
+                        <span class="slider-value" id="blackValue">0</span>
+                    </div>
+                    <input type="range" id="blackSlider" class="slider" min="0" max="255" value="0">
+                </div>
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>White Level</span>
+                        <span class="slider-value" id="whiteValue">255</span>
+                    </div>
+                    <input type="range" id="whiteSlider" class="slider" min="0" max="255" value="255">
+                </div>
+                <!-- New P2S toggle -->
+                <div class="slider-control">
+                    <div class="slider-label">
+                        <span>Pseudo-2.5D Mode (P2S)</span>
+                        <input type="checkbox" id="p2sToggle">
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <button id="processButton" class="process-button">Generate ChromoStereopsis</button>
+                <div id="statusMessage"></div>
+            </div>
+        </div>
+
+        <div class="preview-panel">
+            <div class="preview-card">
+                <div class="preview-header">
+                    <div class="preview-title">Original Image</div>
+                    <button id="downloadOriginal" class="download-button">📥 Download</button>
+                </div>
+                <div class="preview-container" id="originalPreview">
+                    <div class="placeholder-text">No image selected</div>
+                </div>
+            </div>
+
+            <div class="preview-card">
+                <div class="preview-header">
+                    <div class="preview-title">Depth Map</div>
+                    <button id="downloadDepth" class="download-button">📥 Download</button>
+                </div>
+                <div class="preview-container" id="depthPreview">
+                    <div class="placeholder-text">Upload an image to generate depth map</div>
+                </div>
+            </div>
+
+            <div class="preview-card">
+                <div class="preview-header">
+                    <div class="preview-title">ChromoStereopsis Result</div>
+                    <button id="downloadChromo" class="download-button">📥 Download</button>
+                </div>
+                <div class="preview-container" id="chromoPreview">
+                    <div class="placeholder-text">Process image to see result</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+class ChromoStereoizer {
+    constructor() {
+        this.originalImage = null;
+        this.depthMap = null;
+        this.chromoResult = null;
+        this.session = null;
+        this.isProcessing = false;
+        this.modelInputSize = 518;
+        this.hostedModelUrl = "https://cdn.glitch.me/0f5359e2-6022-421b-88f7-13e276d0fb33/depthanythingv2-vits-dynamic-quant.onnx";
+        this.p2sMode = false;
+        this.initializeElements();
+        this.setupEventListeners();
+        this.loadModel();
+    }
+
+    initializeElements() {
+        this.elements = {
+            loadHostedModel: document.getElementById('loadHostedModel'),
+            modelInput: document.getElementById('modelInput'),
+            modelStatus: document.getElementById('modelStatus'),
+            testModelButton: document.getElementById('testModelButton'),
+            imageInput: document.getElementById('imageInput'),
+            filenameInput: document.getElementById('filenameInput'),
+            thresholdSlider: document.getElementById('thresholdSlider'),
+            featherSlider: document.getElementById('featherSlider'),
+            blackSlider: document.getElementById('blackSlider'),
+            whiteSlider: document.getElementById('whiteSlider'),
+            p2sToggle: document.getElementById('p2sToggle'),
+            thresholdValue: document.getElementById('thresholdValue'),
+            featherValue: document.getElementById('featherValue'),
+            blackValue: document.getElementById('blackValue'),
+            whiteValue: document.getElementById('whiteValue'),
+            processButton: document.getElementById('processButton'),
+            statusMessage: document.getElementById('statusMessage'),
+            originalPreview: document.getElementById('originalPreview'),
+            depthPreview: document.getElementById('depthPreview'),
+            chromoPreview: document.getElementById('chromoPreview'),
+            downloadOriginal: document.getElementById('downloadOriginal'),
+            downloadDepth: document.getElementById('downloadDepth'),
+            downloadChromo: document.getElementById('downloadChromo')
+        };
+    }
+
+    setupEventListeners() {
+        this.elements.loadHostedModel.addEventListener('click', () => this.loadHostedModel());
+        this.elements.modelInput.addEventListener('change', (e) => this.handleModelUpload(e));
+        this.elements.testModelButton.addEventListener('click', () => this.testModel());
+        this.elements.imageInput.addEventListener('change', (e) => this.handleImageUpload(e));
+        this.elements.processButton.addEventListener('click', () => this.processImage());
+        this.elements.p2sToggle.addEventListener('change', (e) => { this.p2sMode = e.target.checked; });
+        this.elements.downloadOriginal.addEventListener('click', () => this.downloadImage(this.originalImage, 'original'));
+        this.elements.downloadDepth.addEventListener('click', () => this.downloadImage(this.depthMap?.image, 'depth_map'));
+        this.elements.downloadChromo.addEventListener('click', () => this.downloadImage(this.chromoResult, 'chromostereopsis'));
+        this.elements.thresholdSlider.addEventListener('input', (e) => { this.elements.thresholdValue.textContent = e.target.value + '%'; this.updateChromoPreview(); });
+        this.elements.featherSlider.addEventListener('input', (e) => { this.elements.featherValue.textContent = e.target.value + '%'; this.updateChromoPreview(); });
+        this.elements.blackSlider.addEventListener('input', (e) => { this.elements.blackValue.textContent = e.target.value; this.updateChromoPreview(); });
+        this.elements.whiteSlider.addEventListener('input', (e) => { this.elements.whiteValue.textContent = e.target.value; this.updateChromoPreview(); });
+    }
+
+    async loadHostedModel() {
+        try {
+            this.updateModelStatus('🌐 Loading hosted DepthAnythingV2 model...', 'loading');
+            this.session = await ort.InferenceSession.create(this.hostedModelUrl);
+            this.updateModelStatus('✅ DepthAnythingV2 model loaded successfully!', 'success');
+            this.elements.testModelButton.style.opacity = '1';
+            this.elements.testModelButton.style.pointerEvents = 'auto';
+        } catch (error) {
+            console.error('Failed to load hosted model:', error);
+            this.updateModelStatus(`❌ Failed to load hosted model: ${error.message}`, 'error');
+            this.session = null;
+        }
+    }
+
+    async loadModel() {
+        try {
+            if (typeof ort === 'undefined') {
+                this.updateModelStatus('❌ ONNX Runtime not loaded. Check internet connection.', 'error');
+                return;
+            }
+            ort.env.wasm.wasmPaths = 'https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.16.3/';
+            this.updateModelStatus('✅ ONNX Runtime loaded. Click "Load Hosted Model" for AI depth estimation!', 'info');
+        } catch (error) {
+            console.error('Failed to initialize ONNX Runtime:', error);
+            this.updateModelStatus('❌ Failed to initialize ONNX Runtime', 'error');
+        }
+    }
+
+    async handleModelUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        if (!file.name.endsWith('.onnx')) { this.updateModelStatus('Please select a valid .onnx file', 'error'); return; }
+        try {
+            this.updateModelStatus('Loading custom ONNX model...', 'loading');
+            const arrayBuffer = await file.arrayBuffer();
+            this.session = await ort.InferenceSession.create(arrayBuffer, {executionProviders:['wasm']});
+            this.updateModelStatus(`✅ Custom model "${file.name}" loaded successfully!`, 'success');
+            this.elements.testModelButton.style.opacity = '1';
+            this.elements.testModelButton.style.pointerEvents = 'auto';
+        } catch (error) {
+            console.error('Model loading error:', error);
+            this.updateModelStatus(`❌ Failed to load model: ${error.message}`, 'error');
+            this.session = null;
+            this.elements.testModelButton.style.opacity = '0.5';
+            this.elements.testModelButton.style.pointerEvents = 'none';
+        }
+    }
+
+    async testModel() {
+        if (!this.session) { this.updateModelStatus('❌ No model loaded to test', 'error'); return; }
+        try {
+            this.updateModelStatus('🧪 Testing model with dummy input...', 'loading');
+            const inputName = this.session.inputNames[0];
+            const inputShape = this.session.inputMetadata[inputName].dims;
+            const tensorSize = inputShape.reduce((a,b)=>a*b,1);
+            const dummyData = new Float32Array(tensorSize).fill(0.5);
+            const tensor = new ort.Tensor('float32', dummyData, inputShape);
+            const feeds = {}; feeds[inputName] = tensor;
+            const start = performance.now();
+            const results = await this.session.run(feeds);
+            const end = performance.now();
+            const outputName = this.session.outputNames[0];
+            const output = results[outputName];
+            this.updateModelStatus(`✅ Model test passed! \n📊 Inference time: ${(end-start).toFixed(2)}ms\n📐 Output shape: ${output.dims.join('x')}`, 'success');
+        } catch (error) {
+            console.error('Model test failed:', error);
+            this.updateModelStatus(`❌ Model test failed: ${error.message}`, 'error');
+        }
+    }
+
+    updateModelStatus(message, type='info') {
+        const el = this.elements.modelStatus;
+        el.textContent = message;
+        el.className = `status-message ${type}-message`;
+        if (type === 'loading') {
+            el.innerHTML = `<div class="loading"><div class="spinner"></div>${message}</div>`;
+        }
+    }
+
+    handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                this.originalImage = img;
+                this.displayImage(this.elements.originalPreview, img);
+                this.enableDownloadButton('downloadOriginal');
+                this.clearPreviews(['depth','chromo']);
+                this.disableDownloadButton('downloadDepth');
+                this.disableDownloadButton('downloadChromo');
+                this.depthMap = null; this.chromoResult = null;
+                if (!this.elements.filenameInput.value.trim()) {
+                    const name = file.name.split('.')[0];
+                    this.elements.filenameInput.value = name + '_chromo';
+                }
+                this.showStatus('Image loaded. Click "Generate ChromoStereopsis" to process.', 'info');
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async processImage() {
+        if (!this.originalImage) { this.showStatus('Please select an image first.', 'error'); return; }
+        if (this.isProcessing) return;
+        this.isProcessing = true; this.elements.processButton.disabled = true;
+        try {
+            this.showStatus('Generating depth map...', 'loading');
+            await this.generateDepthMap();
+            this.showStatus('Creating chromostereopsis effect...', 'loading');
+            await this.generateChromoStereopsis();
+            this.showStatus('Processing complete!', 'success');
+        } catch (error) {
+            this.showStatus('Processing failed: ' + error.message, 'error');
+            console.error('Processing error:', error);
+        } finally {
+            this.isProcessing = false; this.elements.processButton.disabled = false;
+        }
+    }
+
+    async generateDepthMap() { return this.session ? await this.generateDepthMapONNX() : await this.generateDepthMapSimple(); }
+
+    async generateDepthMapONNX() {
+        try {
+            const inputTensor = await this.preprocessImageForModel(this.originalImage);
+            const feeds = {}; const inputName = this.session.inputNames.includes('image') ? 'image' : this.session.inputNames[0];
+            feeds[inputName] = inputTensor;
+            const results = await this.session.run(feeds);
+            const outputName = this.session.outputNames.includes('depth') ? 'depth' : this.session.outputNames[0];
+            const outputTensor = results[outputName];
+            const depthData = await this.postprocessDepthOutput(outputTensor, this.originalImage.width, this.originalImage.height);
+            const depthCanvas = document.createElement('canvas');
+            const ctx = depthCanvas.getContext('2d');
+            depthCanvas.width = this.originalImage.width; depthCanvas.height = this.originalImage.height;
+            const depthImageData = ctx.createImageData(this.originalImage.width, this.originalImage.height);
+            for(let i=0;i<depthData.length;i++){const d=depthData[i];const idx=i*4;depthImageData.data[idx]=d;depthImageData.data[idx+1]=d;depthImageData.data[idx+2]=d;depthImageData.data[idx+3]=255;}
+            ctx.putImageData(depthImageData,0,0);
+            return new Promise(res=>{ const img=new Image(); img.onload=()=>{ this.depthMap={image:img,data:depthData}; this.displayImage(this.elements.depthPreview,img); this.enableDownloadButton('downloadDepth'); res();}; img.src=depthCanvas.toDataURL(); });
+        } catch (error) {
+            console.error('ONNX depth estimation failed:', error);
+            this.showStatus('AI depth estimation failed, using fallback method.', 'error');
+            return await this.generateDepthMapSimple();
+        }
+    }
+
+    async preprocessImageForModel(image){
+        const canvas=document.createElement('canvas'); const ctx=canvas.getContext('2d');
+        canvas.width=this.modelInputSize; canvas.height=this.modelInputSize;
+        ctx.drawImage(image,0,0,this.modelInputSize,this.modelInputSize);
+        const imageData=ctx.getImageData(0,0,this.modelInputSize,this.modelInputSize);
+        const floatArr=new Float32Array(imageData.data.length/4*3);
+        let j=0; for(let i=0;i<imageData.data.length;i++){ if((i+1)%4!==0){ floatArr[j++]=imageData.data[i]/255; } }
+        const chw=new Float32Array(floatArr.length);
+        let k=0; for(let i=0;i<floatArr.length;i+=3) chw[k++]=floatArr[i];
+        let l=k; for(let i=1;i<floatArr.length;i+=3) chw[l++]=floatArr[i];
+        let m=l; for(let i=2;i<floatArr.length;i+=3) chw[m++]=floatArr[i];
+        return new ort.Tensor('float32',chw,[1,3,this.modelInputSize,this.modelInputSize]);
+    }
+
+    async postprocessDepthOutput(tensor,targetW,targetH){
+        const h=tensor.dims[1]; const w=tensor.dims[2];
+        const data=new Float32Array(tensor.data.buffer); let max=0,min=Infinity;
+        for(let i=0;i<h*w;i++){ const v=data[i]; if(v>max)max=v; if(v<min)min=v; }
+        const tempC=document.createElement('canvas'); const tempCtx=tempC.getContext('2d');
+        tempC.width=w; tempC.height=h; const imgData=tempCtx.createImageData(w,h); const d=imgData.data;
+        for(let i=0;i<h;i++){ for(let j=0;j<w;j++){ const val=((data[i*w+j]-min)/(max-min))*255; const idx=(i*w+j)*4; d[idx]=d[idx+1]=d[idx+2]=Math.round(val); d[idx+3]=255; } }
+        tempCtx.putImageData(imgData,0,0);
+        if(w!==targetW||h!==targetH){ const finalC=document.createElement('canvas'); const finalCtx=finalC.getContext('2d'); finalC.width=targetW; finalC.height=targetH; finalCtx.drawImage(tempC,0,0,targetW,targetH); const finalImgData=finalCtx.getImageData(0,0,targetW,targetH); const arr=new Uint8Array(targetW*targetH); for(let i=0;i<arr.length;i++){ arr[i]=finalImgData.data[i*4]; } return arr; } else { const arr=new Uint8Array(w*h); for(let i=0;i<arr.length;i++){ arr[i]=d[i*4]; } return arr; }
+    }
+
+    async generateDepthMapSimple(){
+        return new Promise(res=>{
+            const canvas=document.createElement('canvas'); const ctx=canvas.getContext('2d');
+            canvas.width=this.originalImage.width; canvas.height=this.originalImage.height;
+            ctx.drawImage(this.originalImage,0,0); const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
+            const depthData=this.calculateSimpleDepth(imageData);
+            const depthCanvas=document.createElement('canvas'); const depthCtx=depthCanvas.getContext('2d'); depthCanvas.width=canvas.width; depthCanvas.height=canvas.height;
+            const depthImageData=depthCtx.createImageData(canvas.width,canvas.height);
+            for(let i=0;i<depthData.length;i++){ const depth=depthData[i]; const p=i*4; depthImageData.data[p]=depth; depthImageData.data[p+1]=depth; depthImageData.data[p+2]=depth; depthImageData.data[p+3]=255; }
+            depthCtx.putImageData(depthImageData,0,0);
+            const img=new Image(); img.onload=()=>{ this.depthMap={image:img,data:depthData}; this.displayImage(this.elements.depthPreview,img); this.enableDownloadButton('downloadDepth'); res();}; img.src=depthCanvas.toDataURL();
+        });
+    }
+
+    calculateSimpleDepth(imageData){
+        const {width,height,data}=imageData; const depth=new Uint8Array(width*height);
+        for(let y=0;y<height;y++){
+            for(let x=0;x<width;x++){
+                const i=(y*width+x)*4; const gray=0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];
+                let d=gray; const cx=width/2; const cy=height/2; const dist=Math.sqrt((x-cx)**2+(y-cy)**2); const maxDist=Math.sqrt(cx**2+cy**2); const sf=1-(dist/maxDist)*0.3; d=Math.min(255,Math.max(0,d*sf)); depth[y*width+x]=d;
+            }
+        }
+        return depth;
+    }
+
+    async generateChromoStereopsis(){
+        if(!this.depthMap) throw new Error('No depth map available');
+        return new Promise(res=>{
+            const canvas=document.createElement('canvas'); const ctx=canvas.getContext('2d');
+            canvas.width=this.originalImage.width; canvas.height=this.originalImage.height;
+            ctx.drawImage(this.originalImage,0,0); const originalData=ctx.getImageData(0,0,canvas.width,canvas.height);
+            const chromoData=this.applyChromoStereopsis(originalData,this.depthMap.data,canvas.width,canvas.height);
+            ctx.putImageData(chromoData,0,0); const img=new Image(); img.onload=()=>{ this.chromoResult=img; this.displayImage(this.elements.chromoPreview,img); this.enableDownloadButton('downloadChromo'); res(); }; img.src=canvas.toDataURL();
+        });
+    }
+
+    applyChromoStereopsis(originalData,depthData,width,height){
+        const threshold=(parseFloat(this.elements.thresholdSlider.value)/100)*255;
+        const feather=(parseFloat(this.elements.featherSlider.value)/100)*255;
+        const blackLevel=parseFloat(this.elements.blackSlider.value);
+        const whiteLevel=parseFloat(this.elements.whiteSlider.value);
+        const result=new ImageData(width,height);
+        for(let i=0;i<depthData.length;i++){
+            const idx=i*4; const r=originalData.data[idx]; const g=originalData.data[idx+1]; const b=originalData.data[idx+2];
+            const gray=0.299*r+0.587*g+0.114*b; const denom=(whiteLevel>blackLevel)?(whiteLevel-blackLevel):1e-6; let adj=(gray-blackLevel)/denom*255; adj=Math.max(0,Math.min(255,adj)); const adj01=adj/255; const depth=depthData[i];
+            const halfFeather=feather/2; let blend=(depth-(threshold-halfFeather))/(feather+1e-6); blend=Math.max(0,Math.min(1,blend));
+            const red=blend*adj01*255; const blue=(1-blend)*adj01*255; result.data[idx]=Math.min(255,Math.max(0,red)); result.data[idx+1]=0; result.data[idx+2]=Math.min(255,Math.max(0,blue)); result.data[idx+3]=255;
+        }
+        return result;
+    }
+
+    updateChromoPreview(){ if(this.depthMap && !this.isProcessing){ clearTimeout(this.previewTimeout); this.previewTimeout=setTimeout(()=>{ this.generateChromoStereopsis(); },300); } }
+
+    displayImage(container,img){ container.innerHTML=''; const display=img.cloneNode(); display.className='preview-image'; container.appendChild(display); }
+
+    downloadImage(image,type){
+        if(!image){ this.showStatus(`No ${type.replace('_',' ')} image to download.`, 'error'); return; }
+        const base=this.elements.filenameInput.value.trim()||'processed_image';
+        const prefix=this.p2sMode?'p2s_':'rlb_';
+        let filename;
+        switch(type){
+            case 'original': filename=base+'_original.png'; break;
+            case 'depth_map': filename=prefix+base+'_depth.png'; break;
+            case 'chromostereopsis': filename=prefix+base+'_chromo.png'; break;
+            default: filename=prefix+base+'.png';
+        }
+        const canvas=document.createElement('canvas'); const ctx=canvas.getContext('2d');
+        canvas.width=image.width; canvas.height=image.height; ctx.drawImage(image,0,0);
+        canvas.toBlob(blob=>{ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); this.showStatus(`${type.replace('_',' ').replace(/\b\w/g,l=>l.toUpperCase())} downloaded successfully!`, 'success'); },'image/png');
+    }
+
+    enableDownloadButton(id){ this.elements[id].classList.add('enabled'); }
+    disableDownloadButton(id){ this.elements[id].classList.remove('enabled'); }
+
+    clearPreviews(types){ types.forEach(t=>{ const el=this.elements[t+'Preview']; el.innerHTML='<div class="placeholder-text">Processing...</div>'; if(t==='depth')this.disableDownloadButton('downloadDepth'); else if(t==='chromo')this.disableDownloadButton('downloadChromo'); }); }
+
+    showStatus(message,type='info'){ const el=this.elements.statusMessage; el.textContent=message; el.className=`status-message ${type}-message`; if(type==='loading'){ el.innerHTML=`<div class="loading"><div class="spinner"></div>${message}</div>`; } if(type==='success'){ setTimeout(()=>{ el.textContent=''; el.className=''; },3000); } }
+}
+
+document.addEventListener('DOMContentLoaded',()=>{ new ChromoStereoizer(); });
+</script>
+</body>
+</html>
